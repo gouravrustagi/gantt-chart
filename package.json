@@ -1,0 +1,12 @@
+{
+  "name": "gantt-chart-generator",
+  "version": "1.0.0",
+  "description": "Professional Gantt Chart Generator PWA",
+  "main": "app.py",
+  "scripts": {
+    "deploy": "vercel --prod"
+  },
+  "keywords": ["gantt", "chart", "project-management", "pwa"],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Gantt Chart">
+    <meta name="mobile-web-app-capable" content="yes">
+    <!-- theme-color: supported in Chrome, Edge, Safari; ignored safely in Firefox, Opera -->
+    <meta name="theme-color" content="#2196F3">
+    <!-- Note: This meta tag is ignored by Firefox, Firefox for Android, and Opera -->
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/static/manifest.json">
+    
+    <!-- iOS Icons -->
+    <link rel="apple-touch-icon" sizes="120x120" href="/static/icon-120.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/static/icon-152.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="/static/icon-167.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+    
+    <!-- iOS Splash Screens -->
+    <link rel="apple-touch-startup-image" href="/static/icon-512.png">
+    
+    <!-- Standard Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
+    
+    <title>Gantt Chart Generator - Mobile App</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- API Key Login Modal -->
+        <div id="apiKeyModal" class="modal">
+            <div class="modal-content">
+                <h2>🔐 Gemini API Key Required</h2>
+                <p>Please enter your Google Gemini API key to access the Gantt Chart Generator</p>
+                <div id="apiErrorMsg" class="error-message"></div>
+                <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API key" class="api-input">
+                <button class="button button-primary" onclick="verifyApiKey()">Verify & Login</button>
+                <div class="api-info-box">
+                    <strong>Get your API key:</strong> <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="api-link">Google AI Studio</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Task Modal -->
+        <div id="editTaskModal" class="modal">
+            <div class="modal-content">
+                <h2>✏️ Edit Task</h2>
+                <p>Update task timeline</p>
+                <div id="editErrorMsg" class="error-message"></div>
+                
+                <div class="form-group form-group-left">
+                    <label>Task Name</label>
+                    <input type="text" id="editTaskName" placeholder="Enter task name">
+                </div>
+
+                <div class="form-group form-group-left">
+                    <label>Start Date</label>
+                    <input type="date" id="editStartDate" title="Select task start date">
+                </div>
+
+                <div class="form-group form-group-left">
+                    <label>Duration</label>
+                    <input type="text" id="editDuration" placeholder="e.g., 5d, 3h, 2d 4h">
+                    <div class="hint">Use: d (days), h (hours), m (minutes)</div>
+                </div>
+
+                <button class="button button-primary" onclick="saveTaskEdit()">💾 Save Changes</button>
+                <button class="button button-danger" onclick="closeEditModal()">Cancel</button>
+            </div>
+        </div>
+
+        <header>
+            <h1>📊 Gantt Chart Generator</h1>
+            <div class="subtitle">Mobile-Friendly Project Planning Tool</div>
+            <button class="logout-btn hidden" onclick="logout()" id="logoutBtn">🚪 Logout</button>
+        </header>
+
+        <div class="content">
+            <div class="form-section">
+                <h2 class="section-title">Add New Task</h2>
+                
+                <div id="successMsg" class="success-message"></div>
+                <div id="errorMsg" class="error-message"></div>
+
+                <div class="progressive-mode-container">
+                    <div class="progressive-mode-info">
+                        <div class="progressive-mode-title">📅 Sequential Mode</div>
+                        <div class="progressive-mode-desc">Tasks follow in sequence</div>
+                    </div>
+                    <label class="toggle-switch" title="Toggle sequential mode">
+                        <input type="checkbox" id="progressiveModeToggle" checked onchange="toggleProgressiveMode()" aria-label="Enable sequential mode">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label>Task Name</label>
+                    <input type="text" id="taskName" placeholder="Enter task name">
+                </div>
+
+                <div class="form-group">
+                    <label>Start Date</label>
+                    <input type="date" id="startDate" value="2026-02-05" title="Select task start date">
+                </div>
+
+                <div class="form-group">
+                    <label>Duration</label>
+                    <input type="text" id="duration" placeholder="e.g., 5d, 3h, 2d 4h">
+                    <div class="hint">Use: d (days), h (hours), m (minutes)</div>
+                </div>
+
+                <button class="button button-primary" onclick="addTask()">➕ Add Task</button>
+                <button class="button button-danger" onclick="clearAllTasks()">🗑️ Clear All</button>
+
+                <div class="task-list" id="taskList">
+                    <div class="empty-state">No tasks yet</div>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <h2 class="chart-title">Chart Type</h2>
+                
+                <div class="form-group">
+                    <label for="chartTypeSelect">Select Chart Type</label>
+                    <select id="chartTypeSelect" onchange="selectChartType(this.value)">
+                        <option value="standard" selected>📊 Standard</option>
+                        <option value="timeline">⏱️ Timeline</option>
+                        <option value="milestone">🎯 Milestone</option>
+                        <option value="compact">📦 Compact</option>
+                        <option value="waterfall">💧 Waterfall</option>
+                        <option value="critical-path">🔴 Critical Path</option>
+                        <option value="resource">👥 Resource View</option>
+                        <option value="progress">📈 Progress</option>
+                        <option value="dependencies">🔗 Dependencies</option>
+                        <option value="baseline">📏 Baseline</option>
+                        <option value="swimlane">🏊 Swimlane</option>
+                        <option value="calendar">📅 Calendar</option>
+                        <option value="gantt-bars">▬ Gantt Bars</option>
+                        <option value="comparison">⚖️ Comparison</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="colorSchemeSelect">Select Color Scheme</label>
+                    <select id="colorSchemeSelect" onchange="selectColorScheme(this.value)">
+                        <option value="corporate" selected>🏢 Corporate</option>
+                        <option value="vibrant">🌈 Vibrant</option>
+                        <option value="pastel">🎨 Pastel</option>
+                        <option value="ocean">🌊 Ocean</option>
+                        <option value="sunset">🌅 Sunset</option>
+                        <option value="forest">🌲 Forest</option>
+                        <option value="monochrome">⚫ Monochrome</option>
+                        <option value="neon">💡 Neon</option>
+                        <option value="autumn">🍂 Autumn</option>
+                        <option value="spring">🌸 Spring</option>
+                        <option value="midnight">🌙 Midnight</option>
+                        <option value="candy">🍬 Candy</option>
+                        <option value="earth">🌍 Earth</option>
+                        <option value="tropical">🏝️ Tropical</option>
+                    </select>
+                </div>
+
+                <button class="button button-info" onclick="generateChart()">🎨 Generate Chart</button>
+                <button class="button button-primary hidden" onclick="downloadChart()" id="downloadBtn">⬇️ Download Chart</button>
+
+                <img id="chartImage" alt="Gantt Chart">
+                <div id="loadingMsg" class="loading hidden">Generating chart...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedChartType = 'standard';
+        let selectedColorScheme = 'corporate';
+        let isAuthenticated = false;
+        let progressiveMode = true;
+        let deferredPrompt;
+
+        // PWA Install
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            showInstallPrompt();
+        });
+
+        function showInstallPrompt() {
+            // Check if iOS Safari
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+            
+            if (isIOS && !isStandalone) {
+                // Show iOS-specific install instructions
+                const iosPrompt = document.createElement('div');
+                iosPrompt.className = 'ios-install-prompt';
+                iosPrompt.innerHTML = `
+                    <div class="ios-install-title">📱 Install this app on your iPhone</div>
+                    <div class="ios-install-instructions">Tap <img class="ios-install-icon" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 2C11.5 2 11 2.19 10.59 2.59L2.59 10.59C1.8 11.37 1.8 12.63 2.59 13.41C3.37 14.2 4.63 14.2 5.41 13.41L11 7.83V22C11 23.1 11.9 24 13 24C14.1 24 15 23.1 15 22V7.83L20.59 13.41C21.37 14.2 22.63 14.2 23.41 13.41C24.2 12.63 24.2 11.37 23.41 10.59L15.41 2.59C15 2.19 14.5 2 14 2H12Z'/%3E%3C/svg%3E"> and then "Add to Home Screen"</div>
+                    <button class="ios-install-dismiss" onclick="this.parentElement.remove()">Got it!</button>
+                `;
+                document.body.appendChild(iosPrompt);
+            } else if (!isIOS) {
+                // Show Android install button
+                const installBtn = document.createElement('button');
+                installBtn.textContent = '📱 Install App';
+                installBtn.className = 'button button-primary install-prompt-btn';
+                installBtn.onclick = async () => {
+                    if (deferredPrompt) {
+                        deferredPrompt.prompt();
+                        const { outcome } = await deferredPrompt.userChoice;
+                        deferredPrompt = null;
+                        installBtn.remove();
+                    }
+                };
+                document.body.appendChild(installBtn);
+            }
+        }
+
+        // Register Service Worker (with iOS compatibility)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/service-worker.js')
+                    .then(reg => {
+                        console.log('Service Worker registered');
+                        // Check for updates on iOS
+                        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                            setInterval(() => reg.update(), 3600000); // Check every hour
+                        }
+                    })
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+
+        // Check authentication on page load
+        window.onload = function() {
+            checkAuthentication();
+        };
+
+        function checkAuthentication() {
+            // Try to load tasks - if it fails, show API key modal
+            fetch('/get_tasks')
+                .then(response => {
+                    if (response.status === 401) {
+                        showApiKeyModal();
+                    } else {
+                        isAuthenticated = true;
+                        document.getElementById('logoutBtn').classList.remove('hidden');
+                        loadProgressiveMode();
+                        loadTasks();
+                    }
+                })
+                .catch(() => showApiKeyModal());
+        }
+
+        function showApiKeyModal() {
+            document.getElementById('apiKeyModal').style.display = 'block';
+        }
+
+        function hideApiKeyModal() {
+            document.getElementById('apiKeyModal').style.display = 'none';
+        }
+
+        async function verifyApiKey() {
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            const apiErrorMsg = document.getElementById('apiErrorMsg');
+
+            if (!apiKey) {
+                apiErrorMsg.textContent = 'Please enter an API key';
+                apiErrorMsg.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/verify_api_key', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({api_key: apiKey})
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    isAuthenticated = true;
+                    hideApiKeyModal();
+                    document.getElementById('logoutBtn').classList.remove('hidden');
+                    showSuccess('Authenticated successfully!');
+                    loadProgressiveMode();
+                    loadTasks();
+                } else {
+                    apiErrorMsg.textContent = data.error || 'Invalid API key';
+                    apiErrorMsg.style.display = 'block';
+                }
+            } catch (error) {
+                apiErrorMsg.textContent = 'Authentication failed: ' + error.message;
+                apiErrorMsg.style.display = 'block';
+            }
+        }
+
+        async function logout() {
+            if (!confirm('Are you sure you want to logout?')) return;
+
+            try {
+                await fetch('/logout', {method: 'POST'});
+                isAuthenticated = false;
+                document.getElementById('logoutBtn').classList.add('hidden');
+                showApiKeyModal();
+                document.getElementById('taskList').innerHTML = '<div class="empty-state">No tasks yet</div>';
+                document.getElementById('chartImage').style.display = 'none';
+            } catch (error) {
+                showError('Logout failed');
+            }
+        }
+
+        function selectChartType(type) {
+            selectedChartType = type;
+            document.getElementById('chartTypeSelect').value = type;
+        }
+
+        function selectColorScheme(scheme) {
+            selectedColorScheme = scheme;
+            document.getElementById('colorSchemeSelect').value = scheme;
+        }
+
+        async function addTask() {
+            const name = document.getElementById('taskName').value.trim();
+            const startDate = document.getElementById('startDate').value;
+            const duration = document.getElementById('duration').value.trim();
+
+            if (!name || !startDate || !duration) {
+                showError('Please fill all fields');
+                return;
+            }
+
+            try {
+                const response = await fetch('/add_task', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name, start_date: startDate, duration})
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess(`Task "${name}" added successfully!`);
+                    document.getElementById('taskName').value = '';
+                    document.getElementById('duration').value = '';
+                    // Immediately reload to get correct indices
+                    await loadTasks();
+                    // Regenerate chart if visible
+                    if (document.getElementById('chartImage').style.display !== 'none') {
+                        generateChart();
+                    }
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Failed to add task: ' + error.message);
+            }
+        }
+
+        async function loadTasks() {
+            try {
+                const response = await fetch('/get_tasks');
+                const data = await response.json();
+                
+                const taskList = document.getElementById('taskList');
+                
+                if (data.tasks.length === 0) {
+                    taskList.innerHTML = '<div class="empty-state">No tasks yet</div>';
+                } else {
+                    taskList.innerHTML = data.tasks.map((task, index) => `
+                        <div class="task-item" data-task-index="${index}">
+                            <div class="task-info">
+                                <div class="task-name">${task.name}</div>
+                                <div class="task-details">${task.start} • ${task.duration}</div>
+                            </div>
+                            <div class="task-actions">
+                                <button class="edit-btn" onclick="editTask(${index})">✏️</button>
+                                <button class="delete-btn" onclick="removeTask(${index})">✖</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load tasks:', error);
+            }
+        }
+
+        let currentEditIndex = null;
+
+        async function loadProgressiveMode() {
+            try {
+                const response = await fetch('/get_progressive_mode');
+                const data = await response.json();
+                progressiveMode = data.progressive_mode;
+                document.getElementById('progressiveModeToggle').checked = progressiveMode;
+            } catch (error) {
+                console.error('Failed to load progressive mode:', error);
+            }
+        }
+
+        async function toggleProgressiveMode() {
+            try {
+                const response = await fetch('/toggle_progressive_mode', {method: 'POST'});
+                const data = await response.json();
+                
+                if (data.success) {
+                    progressiveMode = data.progressive_mode;
+                    const status = progressiveMode ? 'enabled' : 'disabled';
+                    const updatedCount = data.updated_count || 0;
+                    
+                    if (progressiveMode && updatedCount > 0) {
+                        showSuccess(`Sequential mode ${status}! ${updatedCount} task(s) adjusted.`);
+                    } else {
+                        showSuccess(`Sequential mode ${status}`);
+                    }
+                    
+                    // Reload tasks to show updated dates
+                    await loadTasks();
+                    // Regenerate chart if visible
+                    if (document.getElementById('chartImage').style.display !== 'none') {
+                        generateChart();
+                    }
+                }
+            } catch (error) {
+                showError('Failed to toggle sequential mode');
+            }
+        }
+
+        async function editTask(index) {
+            try {
+                const response = await fetch('/get_tasks');
+                const data = await response.json();
+                
+                if (data.tasks && data.tasks[index]) {
+                    const task = data.tasks[index];
+                    currentEditIndex = index;
+                    
+                    document.getElementById('editTaskName').value = task.name;
+                    document.getElementById('editStartDate').value = task.start;
+                    document.getElementById('editDuration').value = task.duration;
+                    document.getElementById('editTaskModal').style.display = 'block';
+                }
+            } catch (error) {
+                showError('Failed to load task for editing');
+            }
+        }
+
+        function closeEditModal() {
+            document.getElementById('editTaskModal').style.display = 'none';
+            currentEditIndex = null;
+        }
+
+        async function saveTaskEdit() {
+            if (currentEditIndex === null) return;
+
+            const name = document.getElementById('editTaskName').value.trim();
+            const startDate = document.getElementById('editStartDate').value;
+            const duration = document.getElementById('editDuration').value.trim();
+            const editErrorMsg = document.getElementById('editErrorMsg');
+
+            if (!name || !startDate || !duration) {
+                editErrorMsg.textContent = 'Please fill all fields';
+                editErrorMsg.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/update_task/${currentEditIndex}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name, start_date: startDate, duration})
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    const updatedCount = data.updated_count || 1;
+                    if (updatedCount > 1) {
+                        showSuccess(`Task updated! ${updatedCount} tasks adjusted in sequence.`);
+                    } else {
+                        showSuccess('Task updated successfully!');
+                    }
+                    closeEditModal();
+                    // Immediately reload to get correct indices
+                    await loadTasks();
+                    // Regenerate chart if visible
+                    if (document.getElementById('chartImage').style.display !== 'none') {
+                        generateChart();
+                    }
+                } else {
+                    editErrorMsg.textContent = data.error;
+                    editErrorMsg.style.display = 'block';
+                }
+            } catch (error) {
+                editErrorMsg.textContent = 'Failed to update task: ' + error.message;
+                editErrorMsg.style.display = 'block';
+            }
+        }
+
+        async function removeTask(index) {
+            if (!confirm(`Remove task #${index + 1}?`)) return;
+            
+            try {
+                const response = await fetch(`/remove_task/${index}`, {method: 'DELETE'});
+                const data = await response.json();
+                
+                if (data.success) {
+                    const updatedCount = data.updated_count || 0;
+                    if (updatedCount > 0) {
+                        showSuccess(`Task removed! ${updatedCount} subsequent task(s) adjusted.`);
+                    } else {
+                        showSuccess('Task removed');
+                    }
+                    // Immediately reload to get correct indices
+                    await loadTasks();
+                    // Regenerate chart if visible
+                    if (document.getElementById('chartImage').style.display !== 'none') {
+                        generateChart();
+                    }
+                }
+            } catch (error) {
+                showError('Failed to remove task');
+            }
+        }
+
+        async function clearAllTasks() {
+            if (!confirm('Clear all tasks?')) return;
+            
+            try {
+                await fetch('/clear_tasks', {method: 'POST'});
+                showSuccess('All tasks cleared');
+                // Immediately reload to reset indices
+                await loadTasks();
+                document.getElementById('chartImage').style.display = 'none';
+            } catch (error) {
+                showError('Failed to clear tasks');
+            }
+        }
+
+        async function generateChart() {
+            const loadingMsg = document.getElementById('loadingMsg');
+            const chartImage = document.getElementById('chartImage');
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            loadingMsg.classList.remove('hidden');
+            chartImage.style.display = 'none';
+            downloadBtn.classList.add('hidden');
+
+            try {
+                const response = await fetch('/generate_chart', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        chart_type: selectedChartType,
+                        color_scheme: selectedColorScheme
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    chartImage.src = 'data:image/png;base64,' + data.image;
+                    chartImage.style.display = 'block';
+                    downloadBtn.classList.remove('hidden');
+                    showSuccess('Chart generated successfully!');
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Failed to generate chart: ' + error.message);
+            } finally {
+                loadingMsg.classList.add('hidden');
+            }
+        }
+
+        async function downloadChart() {
+            try {
+                const response = await fetch('/download_chart', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        chart_type: selectedChartType,
+                        color_scheme: selectedColorScheme
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Download the file
+                    window.location.href = data.download_url;
+                    showSuccess('Chart downloaded successfully!');
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Failed to download chart: ' + error.message);
+            }
+        }
+
+        function showSuccess(message) {
+            const msg = document.getElementById('successMsg');
+            msg.textContent = message;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 3000);
+        }
+
+        function showError(message) {
+            const msg = document.getElementById('errorMsg');
+            msg.textContent = message;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 3000);
+        }
+    </script>
+</body>
+</html>
