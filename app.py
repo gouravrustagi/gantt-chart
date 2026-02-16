@@ -1268,12 +1268,18 @@ def download_file(filename):
 if __name__ == '__main__':
     import os
     os.environ['FLASK_SKIP_DOTENV'] = '1'
+    
+    # Get port from environment variable (for deployment) or use 5000 for local
+    port = int(os.environ.get('PORT', 5000))
+    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    
     print("\n" + "="*60)
     print("🚀 Gantt Chart Generator - Mobile App")
     print("="*60)
     print("\n📱 Access from mobile:")
-    print("   http://YOUR_PHONE_IP:5000")
+    print(f"   http://YOUR_PHONE_IP:{port}")
     print("\n💻 Access from desktop:")
-    print("   http://localhost:5000")
+    print(f"   http://localhost:{port}")
     print("\n" + "="*60 + "\n")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
