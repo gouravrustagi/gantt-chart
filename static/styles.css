@@ -106,6 +106,19 @@ input:focus, select:focus {
     margin-top: 3px;
 }
 
+.datetime-group {
+    display: flex;
+    gap: 10px;
+}
+
+.datetime-group input[type="date"] {
+    flex: 2;
+}
+
+.datetime-group input[type="time"] {
+    flex: 1;
+}
+
 .button {
     width: 100%;
     padding: 14px;

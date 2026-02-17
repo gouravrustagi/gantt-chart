@@ -271,9 +271,11 @@ class GanttChartGenerator:
         
         return count
     
-    def add_task(self, name, start_date_str, duration_str):
+    def add_task(self, name, start_date_str, duration_str, start_time_str='00:00'):
         """Add a task"""
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+        # Parse date and time
+        datetime_str = f"{start_date_str} {start_time_str}"
+        start_date = datetime.strptime(datetime_str, '%Y-%m-%d %H:%M')
         
         # If progressive mode is on and there are existing tasks, start after the last task
         if self.progressive_mode and self.tasks:
@@ -1044,12 +1046,7 @@ def get_user_generator():
     # Create generator if it doesn't exist for this user
     if user_id not in user_generators:
         generator = GanttChartGenerator()
-        # Add sample progressive tasks for new users
-        generator.add_task("Project Planning", "2026-02-01", "5d")
-        generator.add_task("Design Phase", "2026-02-01", "10d")
-        generator.add_task("Development", "2026-02-01", "20d")
-        generator.add_task("Testing", "2026-02-01", "1d 12h")
-        generator.add_task("Deployment", "2026-02-01", "8h")
+        # Don't add sample tasks - let users start fresh
         user_generators[user_id] = generator
     
     return user_generators[user_id]
@@ -1097,12 +1094,14 @@ def add_task():
     try:
         generator = get_user_generator()
         data = request.json
-        task = generator.add_task(data['name'], data['start_date'], data['duration'])
+        start_time = data.get('start_time', '00:00')
+        task = generator.add_task(data['name'], data['start_date'], data['duration'], start_time)
         return jsonify({
             'success': True,
             'task': {
                 'name': task['name'],
                 'start': task['start'].strftime('%Y-%m-%d'),
+                'time': task['start'].strftime('%H:%M'),
                 'duration': task['duration_str']
             },
             'task_count': len(generator.tasks)
@@ -1134,6 +1133,7 @@ def get_tasks():
     tasks = [{
         'name': t['name'],
         'start': t['start'].strftime('%Y-%m-%d'),
+        'time': t['start'].strftime('%H:%M'),
         'duration': t['duration_str']
     } for t in generator.tasks]
     return jsonify({'tasks': tasks})
@@ -1147,13 +1147,15 @@ def update_task(index):
             data = request.json
             name = data.get('name')
             start_date_str = data.get('start_date')
+            start_time_str = data.get('start_time', '00:00')
             duration_str = data.get('duration')
             
             if not name or not start_date_str or not duration_str:
                 return jsonify({'success': False, 'error': 'Missing required fields'}), 400
             
-            # Parse and update the task
-            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            # Parse date and time
+            datetime_str = f"{start_date_str} {start_time_str}"
+            start_date = datetime.strptime(datetime_str, '%Y-%m-%d %H:%M')
             total_hours, formatted_duration = generator.parse_duration(duration_str)
             end_date = start_date + timedelta(hours=total_hours)
             
@@ -1177,6 +1179,7 @@ def update_task(index):
                 'task': {
                     'name': name,
                     'start': start_date.strftime('%Y-%m-%d'),
+                    'time': start_date.strftime('%H:%M'),
                     'duration': formatted_duration
                 },
                 'updated_count': updated_count
