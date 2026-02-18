@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import io
 import base64
 import re
-from functools import wraps
 import google.generativeai as genai
 import os
 
@@ -19,33 +18,12 @@ DOWNLOADS_DIR = os.path.join(os.path.dirname(__file__), 'downloads')
 if not os.path.exists(DOWNLOADS_DIR):
     os.makedirs(DOWNLOADS_DIR)
 
-# Gemini API Key verification
-def verify_gemini_key(api_key):
-    """Verify Gemini API key by attempting to configure and list models"""
-    try:
-        genai.configure(api_key=api_key)
-        # Try to list models as a verification step
-        list(genai.list_models())
-        return True
-    except Exception as e:
-        print(f"Gemini API verification failed: {e}")
-        return False
-
-# API Key validation decorator
-def require_api_key(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Check session first
-        if session.get('authenticated'):
-            return f(*args, **kwargs)
-        
-        return jsonify({'success': False, 'error': 'Authentication required'}), 401
-    return decorated_function
-
 class GanttChartGenerator:
     def __init__(self):
         self.tasks = []
         self.progressive_mode = True  # Progressive mode enabled by default
+        self.history = []  # Undo/redo history
+        self.history_index = -1  # Current position in history
         
         # Define color palettes
         self.color_palettes = {
@@ -271,7 +249,7 @@ class GanttChartGenerator:
         
         return count
     
-    def add_task(self, name, start_date_str, duration_str, start_time_str='00:00'):
+    def add_task(self, name, start_date_str, duration_str, start_time_str='00:00', priority='Medium', status='Not Started', assignee=''):
         """Add a task"""
         # Parse date and time
         datetime_str = f"{start_date_str} {start_time_str}"
@@ -290,10 +268,63 @@ class GanttChartGenerator:
             'start': start_date,
             'duration_hours': total_hours,
             'duration_str': formatted_duration,
-            'end': end_date
+            'end': end_date,
+            'priority': priority,
+            'status': status,
+            'assignee': assignee
         }
         self.tasks.append(task)
+        self._save_history('add_task', task)
         return task
+    
+    def _save_history(self, action_type, data):
+        """Save action to history for undo/redo"""
+        # Remove any history after current index (if we're not at the end)
+        self.history = self.history[:self.history_index + 1]
+        
+        # Add new action
+        import copy
+        self.history.append({
+            'action': action_type,
+            'data': copy.deepcopy(data),
+            'tasks_snapshot': copy.deepcopy(self.tasks)
+        })
+        
+        self.history_index = len(self.history) - 1
+        
+        # Limit history to 50 actions
+        if len(self.history) > 50:
+            self.history.pop(0)
+            self.history_index -= 1
+    
+    def undo(self):
+        """Undo last action"""
+        if self.history_index > 0:
+            self.history_index -= 1
+            # Restore tasks from previous snapshot
+            import copy
+            if self.history_index >= 0:
+                self.tasks = copy.deepcopy(self.history[self.history_index]['tasks_snapshot'])
+            return True
+        return False
+    
+    def redo(self):
+        """Redo last undone action"""
+        if self.history_index < len(self.history) - 1:
+            self.history_index += 1
+            # Restore tasks from next snapshot
+            import copy
+            self.tasks = copy.deepcopy(self.history[self.history_index]['tasks_snapshot'])
+            return True
+        return False
+    
+    def can_undo(self):
+        """Check if undo is available"""
+        return self.history_index > 0
+    
+    def can_redo(self):
+        """Check if redo is available"""
+        return self.history_index < len(self.history) - 1
     
     def generate_chart(self, chart_type='standard', color_scheme='corporate'):
         """Generate chart and return as base64 image"""
@@ -337,17 +368,41 @@ class GanttChartGenerator:
         colors = self.current_palette['primary']
         
         for idx, task in enumerate(self.tasks):
-            color = colors[idx % len(colors)]
+            # Adjust color based on priority
+            priority = task.get('priority', 'Medium')
+            status = task.get('status', 'Not Started')
+            
+            if priority == 'High':
+                color = '#E53935'  # Red
+            elif priority == 'Low':
+                color = '#66BB6A'  # Green
+            else:
+                color = colors[idx % len(colors)]
+            
+            # Adjust alpha based on status
+            alpha = 0.85
+            if status == 'Completed':
+                alpha = 0.6
+                color = self.current_palette['completed']
+            elif status == 'Blocked':
+                color = self.current_palette['critical']
+            elif status == 'In Progress':
+                alpha = 0.95
+            
             duration_days = task['duration_hours'] / 24
             
             # Main task bar
             ax.barh(task['name'], duration_days, left=task['start'], 
                    height=0.6, color=color, edgecolor=self.current_palette['accent'], 
-                   linewidth=2, alpha=0.85, zorder=2)
+                   linewidth=2, alpha=alpha, zorder=2)
             
             # Duration label in center
             label_position = task['start'] + timedelta(hours=task['duration_hours']/2)
-            ax.text(label_position, idx, task['duration_str'], 
+            duration_text = task['duration_str']
+            if task.get('assignee'):
+                duration_text += f" | {task['assignee']}"
+            
+            ax.text(label_position, idx, duration_text, 
                    ha='center', va='center', fontweight='bold', fontsize=10, 
                    bbox=dict(boxstyle='round,pad=0.4', facecolor='white', 
                             edgecolor=self.current_palette['accent'], linewidth=1.5, alpha=0.9),
@@ -1059,50 +1114,35 @@ def index():
 def serve_static(filename):
     return send_from_directory('static', filename)
 
-@app.route('/verify_api_key', methods=['POST'])
-def verify_api_key():
-    try:
-        data = request.json
-        api_key = data.get('api_key', '')
-        
-        if not api_key:
-            return jsonify({'success': False, 'error': 'API key is required'}), 400
-        
-        # Verify the Gemini API key
-        if verify_gemini_key(api_key):
-            session['authenticated'] = True
-            session['api_key'] = api_key
-            return jsonify({'success': True, 'message': 'Gemini API key verified successfully'})
-        else:
-            return jsonify({'success': False, 'error': 'Invalid Gemini API key. Please verify your key at https://aistudio.google.com/app/apikey'}), 401
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    # Remove user's data when logging out
-    if 'user_id' in session:
-        user_id = session['user_id']
-        if user_id in user_generators:
-            del user_generators[user_id]
-    session.clear()
-    return jsonify({'success': True})
-
 @app.route('/add_task', methods=['POST'])
-@require_api_key
 def add_task():
     try:
         generator = get_user_generator()
         data = request.json
         start_time = data.get('start_time', '00:00')
-        task = generator.add_task(data['name'], data['start_date'], data['duration'], start_time)
+        priority = data.get('priority', 'Medium')
+        status = data.get('status', 'Not Started')
+        assignee = data.get('assignee', '')
+        
+        task = generator.add_task(
+            data['name'], 
+            data['start_date'], 
+            data['duration'], 
+            start_time,
+            priority,
+            status,
+            assignee
+        )
         return jsonify({
             'success': True,
             'task': {
                 'name': task['name'],
                 'start': task['start'].strftime('%Y-%m-%d'),
                 'time': task['start'].strftime('%H:%M'),
-                'duration': task['duration_str']
+                'duration': task['duration_str'],
+                'priority': task['priority'],
+                'status': task['status'],
+                'assignee': task['assignee']
             },
             'task_count': len(generator.tasks)
         })
@@ -1110,7 +1150,6 @@ def add_task():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/generate_chart', methods=['POST'])
-@require_api_key
 def generate_chart():
     try:
         generator = get_user_generator()
@@ -1127,19 +1166,24 @@ def generate_chart():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/get_tasks', methods=['GET'])
-@require_api_key
 def get_tasks():
     generator = get_user_generator()
     tasks = [{
         'name': t['name'],
         'start': t['start'].strftime('%Y-%m-%d'),
         'time': t['start'].strftime('%H:%M'),
-        'duration': t['duration_str']
+        'duration': t['duration_str'],
+        'priority': t.get('priority', 'Medium'),
+        'status': t.get('status', 'Not Started'),
+        'assignee': t.get('assignee', '')
     } for t in generator.tasks]
-    return jsonify({'tasks': tasks})
+    return jsonify({
+        'tasks': tasks,
+        'can_undo': generator.can_undo(),
+        'can_redo': generator.can_redo()
+    })
 
 @app.route('/update_task/<int:index>', methods=['PUT'])
-@require_api_key
 def update_task(index):
     try:
         generator = get_user_generator()
@@ -1149,9 +1193,15 @@ def update_task(index):
             start_date_str = data.get('start_date')
             start_time_str = data.get('start_time', '00:00')
             duration_str = data.get('duration')
+            priority = data.get('priority', 'Medium')
+            status = data.get('status', 'Not Started')
+            assignee = data.get('assignee', '')
             
             if not name or not start_date_str or not duration_str:
                 return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+            
+            # Save history before updating
+            generator._save_history('update_task', {'index': index, 'old_task': generator.tasks[index]})
             
             # Parse date and time
             datetime_str = f"{start_date_str} {start_time_str}"
@@ -1165,7 +1215,10 @@ def update_task(index):
                 'start': start_date,
                 'duration_hours': total_hours,
                 'duration_str': formatted_duration,
-                'end': end_date
+                'end': end_date,
+                'priority': priority,
+                'status': status,
+                'assignee': assignee
             }
             
             # Recalculate sequence for all subsequent tasks if in progressive mode
@@ -1180,20 +1233,26 @@ def update_task(index):
                     'name': name,
                     'start': start_date.strftime('%Y-%m-%d'),
                     'time': start_date.strftime('%H:%M'),
-                    'duration': formatted_duration
+                    'duration': formatted_duration,
+                    'priority': priority,
+                    'status': status,
+                    'assignee': assignee
                 },
-                'updated_count': updated_count
+                'updated_count': updated_count,
+                'can_undo': generator.can_undo(),
+                'can_redo': generator.can_redo()
             })
         return jsonify({'success': False, 'error': 'Invalid task index'}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/remove_task/<int:index>', methods=['DELETE'])
-@require_api_key
 def remove_task(index):
     try:
         generator = get_user_generator()
         if 0 <= index < len(generator.tasks):
+            # Save history before removing
+            generator._save_history('remove_task', {'index': index, 'task': generator.tasks[index]})
             generator.tasks.pop(index)
             
             # Recalculate sequence for remaining tasks if in progressive mode
@@ -1204,27 +1263,74 @@ def remove_task(index):
             return jsonify({
                 'success': True, 
                 'task_count': len(generator.tasks),
-                'updated_count': updated_count
+                'updated_count': updated_count,
+                'can_undo': generator.can_undo(),
+                'can_redo': generator.can_redo()
             })
         return jsonify({'success': False, 'error': 'Invalid index'}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
+@app.route('/undo', methods=['POST'])
+def undo():
+    try:
+        generator = get_user_generator()
+        if generator.undo():
+            tasks = [{
+                'name': t['name'],
+                'start': t['start'].strftime('%Y-%m-%d'),
+                'time': t['start'].strftime('%H:%M'),
+                'duration': t['duration_str'],
+                'priority': t.get('priority', 'Medium'),
+                'status': t.get('status', 'Not Started'),
+                'assignee': t.get('assignee', '')
+            } for t in generator.tasks]
+            return jsonify({
+                'success': True,
+                'tasks': tasks,
+                'can_undo': generator.can_undo(),
+                'can_redo': generator.can_redo()
+            })
+        return jsonify({'success': False, 'error': 'Nothing to undo'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/redo', methods=['POST'])
+def redo():
+    try:
+        generator = get_user_generator()
+        if generator.redo():
+            tasks = [{
+                'name': t['name'],
+                'start': t['start'].strftime('%Y-%m-%d'),
+                'time': t['start'].strftime('%H:%M'),
+                'duration': t['duration_str'],
+                'priority': t.get('priority', 'Medium'),
+                'status': t.get('status', 'Not Started'),
+                'assignee': t.get('assignee', '')
+            } for t in generator.tasks]
+            return jsonify({
+                'success': True,
+                'tasks': tasks,
+                'can_undo': generator.can_undo(),
+                'can_redo': generator.can_redo()
+            })
+        return jsonify({'success': False, 'error': 'Nothing to redo'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 @app.route('/clear_tasks', methods=['POST'])
-@require_api_key
 def clear_tasks():
     generator = get_user_generator()
     generator.tasks.clear()
     return jsonify({'success': True})
 
 @app.route('/get_progressive_mode', methods=['GET'])
-@require_api_key
 def get_progressive_mode():
     generator = get_user_generator()
     return jsonify({'progressive_mode': generator.progressive_mode})
 
 @app.route('/toggle_progressive_mode', methods=['POST'])
-@require_api_key
 def toggle_progressive_mode():
     generator = get_user_generator()
     generator.progressive_mode = not generator.progressive_mode
@@ -1241,7 +1347,6 @@ def toggle_progressive_mode():
     })
 
 @app.route('/download_chart', methods=['POST'])
-@require_api_key
 def download_chart():
     """Generate and download chart as PNG file"""
     try:

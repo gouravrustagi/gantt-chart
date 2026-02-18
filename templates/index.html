@@ -34,24 +34,10 @@
 </head>
 <body>
     <div class="container">
-        <!-- API Key Login Modal -->
-        <div id="apiKeyModal" class="modal">
-            <div class="modal-content">
-                <h2>🔐 Gemini API Key Required</h2>
-                <p>Please enter your Google Gemini API key to access the Gantt Chart Generator</p>
-                <div id="apiErrorMsg" class="error-message"></div>
-                <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API key" class="api-input">
-                <button class="button button-primary" onclick="verifyApiKey()">Verify & Login</button>
-                <div class="api-info-box">
-                    <strong>Get your API key:</strong> <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="api-link">Google AI Studio</a>
-                </div>
-            </div>
-        </div>
-
         <!-- Edit Task Modal -->
         <div id="editTaskModal" class="modal">
             <div class="modal-content">
-                <h2>✏️ Edit Task</h2>
+                <h2>✏️ Edit Task <span id="editTaskNumber"></span></h2>
                 <p>Update task timeline</p>
                 <div id="editErrorMsg" class="error-message"></div>
                 
@@ -74,6 +60,30 @@
                     <div class="hint">Use: d (days), h (hours), m (minutes)</div>
                 </div>
 
+                <div class="form-group form-group-left">
+                    <label>Priority</label>
+                    <select id="editPriority" title="Select task priority">
+                        <option value="Low">🟢 Low</option>
+                        <option value="Medium">🟡 Medium</option>
+                        <option value="High">🔴 High</option>
+                    </select>
+                </div>
+
+                <div class="form-group form-group-left">
+                    <label>Status</label>
+                    <select id="editStatus" title="Select task status">
+                        <option value="Not Started">⚪ Not Started</option>
+                        <option value="In Progress">🔵 In Progress</option>
+                        <option value="Completed">🟢 Completed</option>
+                        <option value="Blocked">🔴 Blocked</option>
+                    </select>
+                </div>
+
+                <div class="form-group form-group-left">
+                    <label>Assignee</label>
+                    <input type="text" id="editAssignee" placeholder="Enter team member name">
+                </div>
+
                 <button class="button button-primary" onclick="saveTaskEdit()">💾 Save Changes</button>
                 <button class="button button-danger" onclick="closeEditModal()">Cancel</button>
             </div>
@@ -82,7 +92,6 @@
         <header>
             <h1>📊 Gantt Chart Generator</h1>
             <div class="subtitle">Mobile-Friendly Project Planning Tool</div>
-            <button class="logout-btn hidden" onclick="logout()" id="logoutBtn">🚪 Logout</button>
         </header>
 
         <div class="content">
@@ -122,8 +131,37 @@
                     <div class="hint">Use: d (days), h (hours), m (minutes)</div>
                 </div>
 
+                <div class="form-group">
+                    <label>Priority</label>
+                    <select id="priority" title="Select task priority">
+                        <option value="Low">🟢 Low</option>
+                        <option value="Medium" selected>🟡 Medium</option>
+                        <option value="High">🔴 High</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="status" title="Select task status">
+                        <option value="Not Started" selected>⚪ Not Started</option>
+                        <option value="In Progress">🔵 In Progress</option>
+                        <option value="Completed">🟢 Completed</option>
+                        <option value="Blocked">🔴 Blocked</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Assignee</label>
+                    <input type="text" id="assignee" placeholder="Enter team member name">
+                </div>
+
                 <button class="button button-primary" onclick="addTask()">➕ Add Task</button>
                 <button class="button button-danger" onclick="clearAllTasks()">🗑️ Clear All</button>
+                
+                <div class="undo-redo-container">
+                    <button class="button button-secondary" id="undoBtn" onclick="undoAction()" disabled>↶ Undo</button>
+                    <button class="button button-secondary" id="redoBtn" onclick="redoAction()" disabled>↷ Redo</button>
+                </div>
 
                 <div class="task-list" id="taskList">
                     <div class="empty-state">No tasks yet</div>
@@ -178,6 +216,14 @@
 
                 <img id="chartImage" alt="Gantt Chart">
                 <div id="loadingMsg" class="loading hidden">Generating chart...</div>
+                
+                <!-- Status Legend -->
+                <div id="statusLegend" class="status-legend hidden">
+                    <h3 class="legend-title">📋 Task Status & Priority Legend</h3>
+                    <div id="legendContent" class="legend-grid">
+                        <!-- Will be populated dynamically -->
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -185,7 +231,6 @@
     <script>
         let selectedChartType = 'standard';
         let selectedColorScheme = 'corporate';
-        let isAuthenticated = false;
         let progressiveMode = true;
         let deferredPrompt;
 
@@ -245,83 +290,9 @@
 
         // Check authentication on page load
         window.onload = function() {
-            checkAuthentication();
+            loadProgressiveMode();
+            loadTasks();
         };
-
-        function checkAuthentication() {
-            // Try to load tasks - if it fails, show API key modal
-            fetch('/get_tasks')
-                .then(response => {
-                    if (response.status === 401) {
-                        showApiKeyModal();
-                    } else {
-                        isAuthenticated = true;
-                        document.getElementById('logoutBtn').classList.remove('hidden');
-                        loadProgressiveMode();
-                        loadTasks();
-                    }
-                })
-                .catch(() => showApiKeyModal());
-        }
-
-        function showApiKeyModal() {
-            document.getElementById('apiKeyModal').style.display = 'block';
-        }
-
-        function hideApiKeyModal() {
-            document.getElementById('apiKeyModal').style.display = 'none';
-        }
-
-        async function verifyApiKey() {
-            const apiKey = document.getElementById('apiKeyInput').value.trim();
-            const apiErrorMsg = document.getElementById('apiErrorMsg');
-
-            if (!apiKey) {
-                apiErrorMsg.textContent = 'Please enter an API key';
-                apiErrorMsg.style.display = 'block';
-                return;
-            }
-
-            try {
-                const response = await fetch('/verify_api_key', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({api_key: apiKey})
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    isAuthenticated = true;
-                    hideApiKeyModal();
-                    document.getElementById('logoutBtn').classList.remove('hidden');
-                    showSuccess('Authenticated successfully!');
-                    loadProgressiveMode();
-                    loadTasks();
-                } else {
-                    apiErrorMsg.textContent = data.error || 'Invalid API key';
-                    apiErrorMsg.style.display = 'block';
-                }
-            } catch (error) {
-                apiErrorMsg.textContent = 'Authentication failed: ' + error.message;
-                apiErrorMsg.style.display = 'block';
-            }
-        }
-
-        async function logout() {
-            if (!confirm('Are you sure you want to logout?')) return;
-
-            try {
-                await fetch('/logout', {method: 'POST'});
-                isAuthenticated = false;
-                document.getElementById('logoutBtn').classList.add('hidden');
-                showApiKeyModal();
-                document.getElementById('taskList').innerHTML = '<div class="empty-state">No tasks yet</div>';
-                document.getElementById('chartImage').style.display = 'none';
-            } catch (error) {
-                showError('Logout failed');
-            }
-        }
 
         function selectChartType(type) {
             selectedChartType = type;
@@ -338,9 +309,12 @@
             const startDate = document.getElementById('startDate').value;
             const startTime = document.getElementById('startTime').value;
             const duration = document.getElementById('duration').value.trim();
+            const priority = document.getElementById('priority').value;
+            const status = document.getElementById('status').value;
+            const assignee = document.getElementById('assignee').value.trim();
 
             if (!name || !startDate || !startTime || !duration) {
-                showError('Please fill all fields');
+                showError('Please fill all required fields');
                 return;
             }
 
@@ -348,7 +322,15 @@
                 const response = await fetch('/add_task', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name, start_date: startDate, start_time: startTime, duration})
+                    body: JSON.stringify({
+                        name, 
+                        start_date: startDate, 
+                        start_time: startTime, 
+                        duration,
+                        priority,
+                        status,
+                        assignee
+                    })
                 });
 
                 const data = await response.json();
@@ -357,6 +339,7 @@
                     showSuccess(`Task "${name}" added successfully!`);
                     document.getElementById('taskName').value = '';
                     document.getElementById('duration').value = '';
+                    document.getElementById('assignee').value = '';
                     document.getElementById('startTime').value = '09:00';
                     // Immediately reload to get correct indices
                     await loadTasks();
@@ -377,23 +360,35 @@
                 const response = await fetch('/get_tasks');
                 const data = await response.json();
                 
+                // Update undo/redo buttons
+                document.getElementById('undoBtn').disabled = !data.can_undo;
+                document.getElementById('redoBtn').disabled = !data.can_redo;
+                
                 const taskList = document.getElementById('taskList');
                 
                 if (data.tasks.length === 0) {
                     taskList.innerHTML = '<div class="empty-state">No tasks yet</div>';
                 } else {
-                    taskList.innerHTML = data.tasks.map((task, index) => `
+                    taskList.innerHTML = data.tasks.map((task, index) => {
+                        const priorityIcon = task.priority === 'High' ? '🔴' : task.priority === 'Low' ? '🟢' : '🟡';
+                        const statusIcon = task.status === 'Completed' ? '🟢' : 
+                                         task.status === 'In Progress' ? '🔵' : 
+                                         task.status === 'Blocked' ? '🔴' : '⚪';
+                        return `
                         <div class="task-item" data-task-index="${index}">
                             <div class="task-info">
                                 <div class="task-name">${task.name}</div>
-                                <div class="task-details">🗓️ ${task.start} ${task.time} • ⏱️ ${task.duration}</div>
+                                <div class="task-details">
+                                    🗓️ ${task.start} ${task.time} • ⏱️ ${task.duration}<br>
+                                    ${priorityIcon} ${task.priority} • ${statusIcon} ${task.status}${task.assignee ? ' • 👤 ' + task.assignee : ''}
+                                </div>
                             </div>
                             <div class="task-actions">
                                 <button class="edit-btn" onclick="editTask(${index})">✏️</button>
                                 <button class="delete-btn" onclick="removeTask(${index})">✖</button>
                             </div>
                         </div>
-                    `).join('');
+                    `}).join('');
                 }
             } catch (error) {
                 console.error('Failed to load tasks:', error);
@@ -450,10 +445,14 @@
                     const task = data.tasks[index];
                     currentEditIndex = index;
                     
+                    document.getElementById('editTaskNumber').textContent = `#${index + 1}`;
                     document.getElementById('editTaskName').value = task.name;
                     document.getElementById('editStartDate').value = task.start;
                     document.getElementById('editStartTime').value = task.time;
                     document.getElementById('editDuration').value = task.duration;
+                    document.getElementById('editPriority').value = task.priority || 'Medium';
+                    document.getElementById('editStatus').value = task.status || 'Not Started';
+                    document.getElementById('editAssignee').value = task.assignee || '';
                     document.getElementById('editTaskModal').style.display = 'block';
                 }
             } catch (error) {
@@ -473,10 +472,13 @@
             const startDate = document.getElementById('editStartDate').value;
             const startTime = document.getElementById('editStartTime').value;
             const duration = document.getElementById('editDuration').value.trim();
+            const priority = document.getElementById('editPriority').value;
+            const status = document.getElementById('editStatus').value;
+            const assignee = document.getElementById('editAssignee').value.trim();
             const editErrorMsg = document.getElementById('editErrorMsg');
 
             if (!name || !startDate || !startTime || !duration) {
-                editErrorMsg.textContent = 'Please fill all fields';
+                editErrorMsg.textContent = 'Please fill all required fields';
                 editErrorMsg.style.display = 'block';
                 return;
             }
@@ -485,7 +487,15 @@
                 const response = await fetch(`/update_task/${currentEditIndex}`, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name, start_date: startDate, start_time: startTime, duration})
+                    body: JSON.stringify({
+                        name, 
+                        start_date: startDate, 
+                        start_time: startTime, 
+                        duration,
+                        priority,
+                        status,
+                        assignee
+                    })
                 });
 
                 const data = await response.json();
@@ -549,6 +559,7 @@
                 // Immediately reload to reset indices
                 await loadTasks();
                 document.getElementById('chartImage').style.display = 'none';
+                document.getElementById('statusLegend').classList.add('hidden');
             } catch (error) {
                 showError('Failed to clear tasks');
             }
@@ -558,10 +569,12 @@
             const loadingMsg = document.getElementById('loadingMsg');
             const chartImage = document.getElementById('chartImage');
             const downloadBtn = document.getElementById('downloadBtn');
+            const statusLegend = document.getElementById('statusLegend');
             
             loadingMsg.classList.remove('hidden');
             chartImage.style.display = 'none';
             downloadBtn.classList.add('hidden');
+            statusLegend.classList.add('hidden');
 
             try {
                 const response = await fetch('/generate_chart', {
@@ -579,6 +592,11 @@
                     chartImage.src = 'data:image/png;base64,' + data.image;
                     chartImage.style.display = 'block';
                     downloadBtn.classList.remove('hidden');
+                    statusLegend.classList.remove('hidden');
+                    
+                    // Update legend with actual tasks
+                    await updateLegend();
+                    
                     showSuccess('Chart generated successfully!');
                 } else {
                     showError(data.error);
@@ -587,6 +605,72 @@
                 showError('Failed to generate chart: ' + error.message);
             } finally {
                 loadingMsg.classList.add('hidden');
+            }
+        }
+
+        async function updateLegend() {
+            try {
+                const response = await fetch('/get_tasks');
+                const data = await response.json();
+                const legendContent = document.getElementById('legendContent');
+                
+                if (data.tasks && data.tasks.length > 0) {
+                    legendContent.innerHTML = data.tasks.map((task, index) => {
+                        // Determine color based on priority
+                        let colorClass = 'not-started';
+                        let bgColor = '#9E9E9E';
+                        
+                        if (task.priority === 'High') {
+                            bgColor = '#E53935';
+                            colorClass = 'priority-high';
+                        } else if (task.priority === 'Low') {
+                            bgColor = '#66BB6A';
+                            colorClass = 'priority-low';
+                        } else {
+                            // Medium priority - use color palette based on index
+                            const colors = ['#2E5266', '#6E8898', '#9FB1BC', '#4A90A4', '#5A7A8A', 
+                                          '#3E6080', '#7E98A8', '#4E7088', '#8EA8B8', '#2A4E62'];
+                            bgColor = colors[index % colors.length];
+                        }
+                        
+                        // Adjust based on status
+                        let opacity = '1.0';
+                        if (task.status === 'Completed') {
+                            bgColor = '#43A047';
+                            opacity = '0.6';
+                        } else if (task.status === 'Blocked') {
+                            bgColor = '#E53935';
+                        } else if (task.status === 'In Progress') {
+                            opacity = '0.95';
+                        } else {
+                            opacity = '0.85';
+                        }
+                        
+                        const priorityIcon = task.priority === 'High' ? '🔴' : 
+                                           task.priority === 'Low' ? '🟢' : '🟡';
+                        const statusIcon = task.status === 'Completed' ? '🟢' : 
+                                         task.status === 'In Progress' ? '🔵' : 
+                                         task.status === 'Blocked' ? '🔴' : '⚪';
+                        
+                        return `
+                            <div class="legend-item">
+                                <div class="legend-task">
+                                    <span class="legend-color-task" style="background-color: ${bgColor}; opacity: ${opacity};"></span>
+                                    <div class="legend-task-info">
+                                        <div class="legend-task-name"><strong>#${index + 1}</strong> ${task.name}</div>
+                                        <div class="legend-task-meta">
+                                            ${priorityIcon} ${task.priority} • ${statusIcon} ${task.status}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    legendContent.innerHTML = '<div class="empty-state">No tasks to display</div>';
+                }
+            } catch (error) {
+                console.error('Failed to update legend:', error);
             }
         }
 
@@ -627,6 +711,46 @@
             msg.textContent = message;
             msg.style.display = 'block';
             setTimeout(() => msg.style.display = 'none', 3000);
+        }
+
+        async function undoAction() {
+            try {
+                const response = await fetch('/undo', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    await loadTasks();
+                    showSuccess('Action undone');
+                    // Regenerate chart if visible
+                    if (document.getElementById('chartImage').style.display !== 'none') {
+                        generateChart();
+                    }
+                } else {
+                    showError(data.error || 'Nothing to undo');
+                }
+            } catch (error) {
+                showError('Undo failed: ' + error.message);
+            }
+        }
+
+        async function redoAction() {
+            try {
+                const response = await fetch('/redo', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    await loadTasks();
+                    showSuccess('Action redone');
+                    // Regenerate chart if visible
+                    if (document.getElementById('chartImage').style.display !== 'none') {
+                        generateChart();
+                    }
+                } else {
+                    showError(data.error || 'Nothing to redo');
+                }
+            } catch (error) {
+                showError('Redo failed: ' + error.message);
+            }
         }
     </script>
 </body>
