@@ -9,6 +9,13 @@ import base64
 import re
 import google.generativeai as genai
 import os
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+import pandas as pd
 
 app = Flask(__name__)
 app.secret_key = 'gantt-chart-secret-key-2026-secure'  # Change this to a random secret key
@@ -1372,6 +1379,245 @@ def download_chart():
 def download_file(filename):
     """Serve the download file"""
     return send_from_directory(DOWNLOADS_DIR, filename, as_attachment=True)
+
+@app.route('/export_pdf', methods=['POST'])
+def export_pdf():
+    """Export Gantt chart data to PDF with chart image"""
+    try:
+        generator = get_user_generator()
+        if not generator.tasks:
+            return jsonify({'success': False, 'error': 'No tasks to export'}), 400
+        
+        data = request.json
+        chart_type = data.get('chart_type', 'standard')
+        color_scheme = data.get('color_scheme', 'corporate')
+        
+        # Generate filename
+        filename = f'gantt_chart_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        filepath = os.path.join(DOWNLOADS_DIR, filename)
+        
+        # Create PDF document
+        doc = SimpleDocTemplate(filepath, pagesize=A4)
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#5e72e4'),
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+        elements.append(Paragraph('Gantt Chart Report', title_style))
+        elements.append(Spacer(1, 0.3*inch))
+        
+        # Generate and add chart image
+        img_base64 = generator.generate_chart(chart_type, color_scheme)
+        img_data = base64.b64decode(img_base64)
+        img_buffer = io.BytesIO(img_data)
+        img = RLImage(img_buffer, width=7*inch, height=4.5*inch)
+        elements.append(img)
+        elements.append(Spacer(1, 0.3*inch))
+        
+        # Task details table
+        subtitle_style = ParagraphStyle(
+            'Subtitle',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.HexColor('#5e72e4'),
+            spaceAfter=12
+        )
+        elements.append(Paragraph('Task Details', subtitle_style))
+        elements.append(Spacer(1, 0.2*inch))
+        
+        # Create table data
+        table_data = [['#', 'Task Name', 'Start Date', 'End Date', 'Duration', 'Priority', 'Status', 'Assignee']]
+        
+        for idx, task in enumerate(generator.tasks, 1):
+            table_data.append([
+                str(idx),
+                task['name'][:30],  # Truncate long names
+                task['start'].strftime('%Y-%m-%d %H:%M'),
+                task['end'].strftime('%Y-%m-%d %H:%M'),
+                task['duration_str'],
+                task.get('priority', 'Medium'),
+                task.get('status', 'Not Started'),
+                task.get('assignee', '-')[:20]  # Truncate long names
+            ])
+        
+        # Create table
+        table = Table(table_data, colWidths=[0.4*inch, 2*inch, 1.2*inch, 1.2*inch, 0.8*inch, 0.8*inch, 1*inch, 1*inch])
+        
+        # Style table
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#5e72e4')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        
+        elements.append(table)
+        
+        # Add metadata footer
+        elements.append(Spacer(1, 0.5*inch))
+        footer_style = ParagraphStyle(
+            'Footer',
+            parent=styles['Normal'],
+            fontSize=9,
+            textColor=colors.grey,
+            alignment=TA_CENTER
+        )
+        elements.append(Paragraph(
+            f'Generated on {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | Total Tasks: {len(generator.tasks)}',
+            footer_style
+        ))
+        
+        # Build PDF
+        doc.build(elements)
+        
+        return jsonify({'success': True, 'filename': filename, 'download_url': f'/download/{filename}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/export_csv', methods=['POST'])
+def export_csv():
+    """Export Gantt chart data to CSV format"""
+    try:
+        generator = get_user_generator()
+        if not generator.tasks:
+            return jsonify({'success': False, 'error': 'No tasks to export'}), 400
+        
+        # Generate filename
+        filename = f'gantt_chart_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+        filepath = os.path.join(DOWNLOADS_DIR, filename)
+        
+        # Create DataFrame
+        data = []
+        for idx, task in enumerate(generator.tasks, 1):
+            data.append({
+                'Task #': idx,
+                'Task Name': task['name'],
+                'Start Date': task['start'].strftime('%Y-%m-%d'),
+                'Start Time': task['start'].strftime('%H:%M'),
+                'End Date': task['end'].strftime('%Y-%m-%d'),
+                'End Time': task['end'].strftime('%H:%M'),
+                'Duration': task['duration_str'],
+                'Duration (Hours)': task['duration_hours'],
+                'Priority': task.get('priority', 'Medium'),
+                'Status': task.get('status', 'Not Started'),
+                'Assignee': task.get('assignee', '')
+            })
+        
+        df = pd.DataFrame(data)
+        df.to_csv(filepath, index=False, encoding='utf-8')
+        
+        return jsonify({'success': True, 'filename': filename, 'download_url': f'/download/{filename}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@app.route('/export_excel', methods=['POST'])
+def export_excel():
+    """Export Gantt chart data to Excel format with formatting"""
+    try:
+        generator = get_user_generator()
+        if not generator.tasks:
+            return jsonify({'success': False, 'error': 'No tasks to export'}), 400
+        
+        # Generate filename
+        filename = f'gantt_chart_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        filepath = os.path.join(DOWNLOADS_DIR, filename)
+        
+        # Create DataFrame
+        data = []
+        for idx, task in enumerate(generator.tasks, 1):
+            data.append({
+                'Task #': idx,
+                'Task Name': task['name'],
+                'Start Date': task['start'].strftime('%Y-%m-%d'),
+                'Start Time': task['start'].strftime('%H:%M'),
+                'End Date': task['end'].strftime('%Y-%m-%d'),
+                'End Time': task['end'].strftime('%H:%M'),
+                'Duration': task['duration_str'],
+                'Duration (Hours)': task['duration_hours'],
+                'Priority': task.get('priority', 'Medium'),
+                'Status': task.get('status', 'Not Started'),
+                'Assignee': task.get('assignee', '')
+            })
+        
+        df = pd.DataFrame(data)
+        
+        # Write to Excel with formatting
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Gantt Chart', index=False)
+            
+            # Get workbook and worksheet
+            workbook = writer.book
+            worksheet = writer.sheets['Gantt Chart']
+            
+            # Format header row
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            
+            header_fill = PatternFill(start_color='5E72E4', end_color='5E72E4', fill_type='solid')
+            header_font = Font(bold=True, color='FFFFFF', size=11)
+            centered_alignment = Alignment(horizontal='center', vertical='center')
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            # Apply header formatting
+            for cell in worksheet[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = centered_alignment
+                cell.border = thin_border
+            
+            # Apply cell formatting
+            for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row):
+                for cell in row:
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    cell.border = thin_border
+            
+            # Adjust column widths
+            column_widths = {
+                'A': 8, 'B': 30, 'C': 12, 'D': 10, 
+                'E': 12, 'F': 10, 'G': 12, 'H': 15, 
+                'I': 10, 'J': 15, 'K': 20
+            }
+            for col, width in column_widths.items():
+                worksheet.column_dimensions[col].width = width
+            
+            # Add summary row
+            summary_row = worksheet.max_row + 2
+            worksheet[f'A{summary_row}'] = 'Summary'
+            worksheet[f'A{summary_row}'].font = Font(bold=True, size=12)
+            
+            summary_row += 1
+            worksheet[f'A{summary_row}'] = 'Total Tasks:'
+            worksheet[f'B{summary_row}'] = len(generator.tasks)
+            
+            summary_row += 1
+            total_hours = sum(task['duration_hours'] for task in generator.tasks)
+            worksheet[f'A{summary_row}'] = 'Total Duration (Hours):'
+            worksheet[f'B{summary_row}'] = total_hours
+            
+            summary_row += 1
+            worksheet[f'A{summary_row}'] = 'Total Duration (Days):'
+            worksheet[f'B{summary_row}'] = round(total_hours / 24, 2)
+        
+        return jsonify({'success': True, 'filename': filename, 'download_url': f'/download/{filename}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 if __name__ == '__main__':
     import os

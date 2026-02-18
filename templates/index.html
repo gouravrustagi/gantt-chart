@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-title" content="Gantt Chart">
     <meta name="mobile-web-app-capable" content="yes">
     <!-- theme-color: supported in Chrome, Edge, Safari; ignored safely in Firefox, Opera -->
-    <meta name="theme-color" content="#2196F3">
+    <meta name="theme-color" content="#5e72e4">
     <!-- Note: This meta tag is ignored by Firefox, Firefox for Android, and Opera -->
     
     <!-- Manifest -->
@@ -212,7 +212,13 @@
                 </div>
 
                 <button class="button button-info" onclick="generateChart()">🎨 Generate Chart</button>
-                <button class="button button-primary hidden" onclick="downloadChart()" id="downloadBtn">⬇️ Download Chart</button>
+                <button class="button button-primary hidden" onclick="downloadChart()" id="downloadBtn">⬇️ Download PNG</button>
+                
+                <div class="export-buttons hidden" id="exportButtonsContainer">
+                    <button class="button button-danger" onclick="exportPDF()">📄 Export PDF</button>
+                    <button class="button button-primary" onclick="exportCSV()">📊 Export CSV</button>
+                    <button class="button button-secondary" onclick="exportExcel()">📗 Export Excel</button>
+                </div>
 
                 <img id="chartImage" alt="Gantt Chart">
                 <div id="loadingMsg" class="loading hidden">Generating chart...</div>
@@ -569,11 +575,13 @@
             const loadingMsg = document.getElementById('loadingMsg');
             const chartImage = document.getElementById('chartImage');
             const downloadBtn = document.getElementById('downloadBtn');
+            const exportButtonsContainer = document.getElementById('exportButtonsContainer');
             const statusLegend = document.getElementById('statusLegend');
             
             loadingMsg.classList.remove('hidden');
             chartImage.style.display = 'none';
             downloadBtn.classList.add('hidden');
+            exportButtonsContainer.classList.add('hidden');
             statusLegend.classList.add('hidden');
 
             try {
@@ -592,6 +600,7 @@
                     chartImage.src = 'data:image/png;base64,' + data.image;
                     chartImage.style.display = 'block';
                     downloadBtn.classList.remove('hidden');
+                    exportButtonsContainer.classList.remove('hidden');
                     statusLegend.classList.remove('hidden');
                     
                     // Update legend with actual tasks
@@ -696,6 +705,70 @@
                 }
             } catch (error) {
                 showError('Failed to download chart: ' + error.message);
+            }
+        }
+
+        async function exportPDF() {
+            try {
+                const response = await fetch('/export_pdf', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        chart_type: selectedChartType,
+                        color_scheme: selectedColorScheme
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    window.location.href = data.download_url;
+                    showSuccess('PDF exported successfully!');
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Failed to export PDF: ' + error.message);
+            }
+        }
+
+        async function exportCSV() {
+            try {
+                const response = await fetch('/export_csv', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    window.location.href = data.download_url;
+                    showSuccess('CSV exported successfully!');
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Failed to export CSV: ' + error.message);
+            }
+        }
+
+        async function exportExcel() {
+            try {
+                const response = await fetch('/export_excel', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    window.location.href = data.download_url;
+                    showSuccess('Excel exported successfully!');
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Failed to export Excel: ' + error.message);
             }
         }
 
