@@ -9,13 +9,6 @@ import base64
 import re
 import google.generativeai as genai
 import os
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-import pandas as pd
 
 app = Flask(__name__)
 app.secret_key = 'gantt-chart-secret-key-2026-secure'  # Change this to a random secret key
@@ -1384,6 +1377,14 @@ def download_file(filename):
 def export_pdf():
     """Export Gantt chart data to PDF with chart image"""
     try:
+        # Lazy import for faster app startup
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        
         generator = get_user_generator()
         if not generator.tasks:
             return jsonify({'success': False, 'error': 'No tasks to export'}), 400
@@ -1491,6 +1492,9 @@ def export_pdf():
 def export_csv():
     """Export Gantt chart data to CSV format"""
     try:
+        # Lazy import for faster app startup
+        import pandas as pd
+        
         generator = get_user_generator()
         if not generator.tasks:
             return jsonify({'success': False, 'error': 'No tasks to export'}), 400
@@ -1527,6 +1531,9 @@ def export_csv():
 def export_excel():
     """Export Gantt chart data to Excel format with formatting"""
     try:
+        # Lazy import for faster app startup
+        import pandas as pd
+        
         generator = get_user_generator()
         if not generator.tasks:
             return jsonify({'success': False, 'error': 'No tasks to export'}), 400
